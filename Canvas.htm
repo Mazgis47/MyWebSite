@@ -1,0 +1,845 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>Graph to Data</title>
+    <h1 align="center">Graph to Data - get line point coordinates from the actual graph</h1>
+</head>
+<body>
+    <script type="text/javascript" src="math.js"></script>
+    <div>
+        This web tool enables you digitize the plot online - gather and export data from the graph drawn by hand, from the image file or by the function. This might be useful when experiment data is lost and trendline is inacurrate. Decimal places must be separated by the dot '.', coordinates separated by the semicolon ';'.
+        Copy/paste the data to the text file or spreadsheet for further processing. Set sampling to 0 while drawing by hand and use "Get and Load" with the "Average Y values" checked to smoothen the line.
+        If you have several lines of the same or similar color in your image file - please erase all lines except one by any graph processing tool before using here.
+    </div>
+    <br />
+    <label id="Label1">
+        X Start:
+    </label>
+    <input id="xStart" style="width: 30px" value="0" onchange="ChangePicParameters()" />
+    <label id="Label2">
+        Y Start:</label>
+    <input id="yStart" style="width: 30px" value="0" onchange="ChangePicParameters()" />
+    <label id="Label3">
+        X End:
+    </label>
+    <input id="xEnd" style="width: 30px" value="100" onchange="ChangePicParameters()" />
+    <label id="Label4">
+        Y End:</label>
+    <input id="yEnd" style="width: 30px" value="100" onchange="ChangePicParameters()" />
+    <label id="Label5">
+        Sampling:</label>
+    <input id="sampling" style="width: 30px" value="0" onchange="SetSampling()" />
+    <label id="Label6">
+        X Grid:
+    </label>
+    <input id="xGrid" style="width: 30px" value="10" onchange="ChangePicParameters()" />
+    <label id="Label7">
+        Y Grid:</label>
+    <input id="yGrid" style="width: 30px" value="10" onchange="ChangePicParameters()" />
+    Avg. Y values.<input type="checkbox" id="average" value="yes" checked="checked" />
+    Fill gaps<input type="checkbox" id="fillGaps" value="yes" />
+    <label id="Label9">
+        Dec. Digits</label>
+    <input id="decimalDigits" style="width: 20px" value="5" onchange="SetDecimalDigits()" />
+    <button type="button" id="btErase" onclick="SetErase()">Draw Mode</button>
+    <br />
+    <canvas id="myCanvas" width="1200" height="700" style="border: 1px solid #000000;
+        image-rendering: pixelated; cursor:crosshair;" onmousedown="OnMouseDown(event)" onmouseup="OnMouseUp(event)"
+        onmousemove="OnMouseMove(event)" onmouseout="OnMouseOut(event)">
+    Your browser does not support the HTML5 canvas tag.
+    </canvas>
+    <br />
+    <label id="mouseCoordinatesLabel">
+        Mouse position: 0,0</label>
+    <br />
+    <label id="realCoordinatesLabelX">
+        X: 0</label>
+    <br />
+    <label id="realCoordinatesLabelY">
+        Y: 0</label>
+    <br />
+    <button type="button" id="btGetData" onclick="GetData()">
+        Get Data</button>
+    <button type="button" id="btLoadData" onclick="LoadData()">
+        Load Data</button>
+    <button type="button" id="btGetLoad" onclick="GetLoadData()">
+        Get and Load</button>
+    <button type="button" id="btReset" onclick="Reset()">
+        Reset</button>
+    <label id="lbFunction">
+        Function:
+    </label>
+    <input id="txFunction" style="width: 200px" value="log(x^2)*3" />
+    <button type="button" id="btFunction" onclick="DrawFunction()">Draw</button>
+    <label id="lbLastError">
+    </label>
+    <br />
+    <label>Select an image</label>
+    <input type="file" id="imgFile" accept="image/*" />
+    <br />
+    <label id="lbSelectPoint"></label>
+    <br />
+    <button type="button" id="btCalibrate" style="visibility:hidden;" onclick="Calibrate()">Calibrate Axis</button>
+    <label id="lbSelectedPointAttributes"></label>
+    <br />
+    <canvas id="canvasImg" width="1" height="1" onmousemove="ShowPointColor(event)" onmousedown="ProcessImage(event)" style="border: 1px solid #000000; image-rendering: pixelated; cursor:crosshair;">
+        Your browser does not support the HTML5 canvas tag.
+    </canvas>
+    <br />
+    <textarea id="textArea" style="width: 500px; height: 300px;"></textarea>
+    <script type="text/javascript">
+        
+        var mouseDown = false;
+        var erase = false;
+        var calibrate = false;
+        var pixel = { r: 0, g: 0, b: 0, a: 0 };
+        var cStart = [pixel, pixel, pixel, pixel];
+        var cEnd = [pixel, pixel, pixel, pixel];
+
+        var c = document.getElementById("myCanvas");
+        var lastX = 0;
+        var lastY = 0;
+
+        var xStart = 0;
+        var xEnd = 0;
+        var xStepWidth = 0;
+        var xGrid = 0;
+        var xStep = 0;
+        var yStart = 0;
+        var yEnd = 0;
+        var yStepWidth = 0
+        var yGrid = 0;
+        var yStep = 0;
+        var sampling = 0;
+
+        var calibrateXStart = 0;
+        var calibrateYStart = 0;
+        var calibrateXEnd = 0;
+        var calibrateYEnd = 0;
+
+        var ctx = c.getContext("2d");
+        var w = ctx.canvas.width, h = ctx.canvas.height;
+        var id = ctx.createImageData(1, 1); // only do this once per page
+        var d = id.data;                    // only do this once per page
+
+        var canvasImg = document.getElementById("canvasImg");
+        var contextImg = canvasImg.getContext("2d");
+        var ctxImg = contextImg.getImageData(0, 0, canvasImg.width, canvasImg.height);
+        var idImg = ctxImg.data;
+
+        SetGrid();
+
+        function BackupCalibrationPoints() {
+            var cXs1 = calibrateXStart - 1;
+            var cYs1 = calibrateYStart - 1;
+            var cXe1 = calibrateXEnd - 1;
+            var cYe1 = calibrateYEnd - 1;
+            if (calibrateXStart <= 0) {
+                cXs1++;
+            }
+            if (calibrateYStart <= 0) {
+                cYs1++;
+            }
+            if (calibrateXEnd >= canvasImg.width - 1) {
+                cXe1--;
+            }
+            if (calibrateYStart >= canvasImg.height - 1) {
+                cYe1--;
+            }
+            var k = 0;
+            for (var i = 0; i < 2; i++) {
+                for (var j = 0; j < 2; j++) {
+                    //var iStart = (cYs1 * canvasImg.width + cXs1) * 4;
+                    var iStart = ((cYs1 + j) * canvasImg.width + cXs1 + i) * 4;
+                    cStart[k].r = idImg[iStart];
+                    cStart[k].g = idImg[iStart + 1];
+                    cStart[k].b = idImg[iStart + 2];
+                    cStart[k].a = idImg[iStart + 3];
+                    var iEnd = ((cYe1 + j) * canvasImg.width + cXe1 + i) * 4;
+                    cEnd[k].r = idImg[iEnd];
+                    cEnd[k].g = idImg[iEnd + 1];
+                    cEnd[k].b = idImg[iEnd + 2];
+                    cEnd[k].a = idImg[iEnd + 3];
+                    k++;
+                }
+            }
+        }
+
+        function RestoreCalibrationPoints() {
+            var cXs1 = calibrateXStart - 1;
+            var cYs1 = calibrateYStart - 1;
+            var cXe1 = calibrateXEnd - 1;
+            var cYe1 = calibrateYEnd - 1;
+            if (calibrateXStart <= 0) {
+                cXs1++;
+            }
+            if (calibrateYStart <= 0) {
+                cYs1++;
+            }
+            if (calibrateXEnd >= canvasImg.width - 1) {
+                cXe1--;
+            }
+            if (calibrateYStart >= canvasImg.height - 1) {
+                cYe1--;
+            }
+            var k = 0;
+            for (var i = 0; i < 2; i++) {
+                for (var j = 0; j < 2; j++) {
+                    contextImg.fillStyle = "#FFFFFF"; // need to restore actual color
+                    contextImg.fillRect(cXs1 + i, cYs1 + j, 1, 1);
+                    contextImg.fillRect(cXe1 + i, cYe1 + j, 1, 1);
+                    contextImg.fillRect(cXe1 + i, cYs1 + j, 1, 1);
+                    contextImg.fillRect(cXs1 + i, cYe1 + j, 1, 1);
+                    k++;
+                }
+            }
+        }
+
+        function DisplayCalibration() {
+            contextImg.fillStyle = "#FF0101";
+            //alert(calibrateXStart + ' ' + calibrateYStart + ' ' + calibrateXEnd + ' ' + calibrateYEnd);
+            var cXs1 = calibrateXStart - 1;
+            var cYs1 = calibrateYStart - 1;
+            var cXe1 = calibrateXEnd - 1;
+            var cYe1 = calibrateYEnd - 1;
+            if (calibrateXStart <= 0) {
+                cXs1++;
+            }
+            if (calibrateYStart <= 0) {
+                cYs1++;
+            }
+            if (calibrateXEnd >= canvasImg.width - 1) {
+                cXe1--;
+            }
+            if (calibrateYStart >= canvasImg.height - 1) {
+                cYe1--;
+            }
+            contextImg.fillRect(cXs1, cYs1, 2, 2);
+            contextImg.fillRect(cXe1, cYe1, 2, 2);
+            contextImg.fillRect(cXs1, cYe1, 2, 2);
+            contextImg.fillRect(cXe1, cYs1, 2, 2);
+        }
+
+        function Calibrate() {
+            calibrate = !calibrate;
+            if (calibrate) {
+                document.getElementById("btCalibrate").innerHTML = "Select Point";
+                BackupCalibrationPoints();
+                DisplayCalibration();
+            }
+            else {
+                document.getElementById("btCalibrate").innerHTML = "Calibrate Axis";
+                RestoreCalibrationPoints();
+            }
+        }
+
+        function ReadImage() {
+            //alert('img');
+            if (this.files && this.files[0]) {
+                var FR = new FileReader();
+                FR.onload = function (e) {
+                    var img = new Image();
+                    img.onload = function () {
+                        canvasImg.width = img.width;
+                        canvasImg.height = img.height;
+                        contextImg.drawImage(img, 0, 0);
+                        document.getElementById("lbSelectPoint").innerHTML = "Please select a point in the graph to be recognized as a valid line.";
+                        ctxImg = contextImg.getImageData(0, 0, canvasImg.width, canvasImg.height);
+                        idImg = ctxImg.data;
+                        calibrateXStart = 0;
+                        calibrateYStart = 0;
+                        calibrateXEnd = canvasImg.width - 1;
+                        calibrateYEnd = canvasImg.height - 1;
+                        document.getElementById("btCalibrate").setAttribute("style", "visibility:visible;");
+                    };
+                    img.src = e.target.result;
+                };
+                FR.readAsDataURL(this.files[0]);
+            }
+        }
+
+        document.getElementById("imgFile").addEventListener("change", ReadImage, false);
+
+        //handler
+        function pasteHandler(e) {
+            if (e.clipboardData == false) return false; //empty
+            var items = e.clipboardData.items;
+            if (items == undefined) return false;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf("image") == -1) continue; //not image
+                var blob = items[i].getAsFile();
+                var URLObj = window.URL || window.webkitURL;
+                var source = URLObj.createObjectURL(blob);
+                paste_createImage(source);
+                break;
+            }
+        }
+        //draw pasted object
+        function paste_createImage(source) {
+            var pastedImage = new Image();
+            pastedImage.onload = function () {
+                canvasImg.width = pastedImage.width;
+                canvasImg.height = pastedImage.height;
+                contextImg.drawImage(pastedImage, 0, 0);
+                document.getElementById("lbSelectPoint").innerHTML = "Please select a point in the graph to be recognized as a valid line.";
+                ctxImg = contextImg.getImageData(0, 0, canvasImg.width, canvasImg.height);
+                idImg = ctxImg.data;
+                calibrateXStart = 0;
+                calibrateYStart = 0;
+                calibrateXEnd = canvasImg.width - 1;
+                calibrateYEnd = canvasImg.height - 1;
+                document.getElementById("btCalibrate").setAttribute("style", "visibility:visible;");
+            }
+            pastedImage.src = source;
+        }
+
+        window.addEventListener("paste", pasteHandler); //chrome
+
+        function ShowPointColor(event) {
+            var mousePos = GetMousePos(canvasImg, event);
+            var mX = Math.round(mousePos.x) - 1;
+            var mY = Math.round(mousePos.y) - 1;
+            var i = (mY * canvasImg.width + mX) * 4;
+            //alert(idImg);
+            var r1 = idImg[i], g1 = idImg[i + 1], b1 = idImg[i + 2], a1 = idImg[i + 3];
+            //alert(r1 + ' ' + g1 + ' ' + b1 + ' ' + a1);
+            document.getElementById("lbSelectedPointAttributes").innerHTML = 'Point color (RGBA): ' + r1 + ' ' + g1 + ' ' + b1 + ' ' + a1;
+        }
+
+        function CalibrateAxis(cx, cy) {
+            RestoreCalibrationPoints();
+            if (cx < canvasImg.width / 2) {
+                calibrateXStart = cx;
+            }
+            else {
+                calibrateXEnd = cx;
+            }
+            if (cy < canvasImg.height / 2) {
+                calibrateYStart = cy;
+            }
+            else {
+                calibrateYEnd = cy;
+            }
+            //alert(calibrateXStart + ' ' + calibrateYStart + ' ' + calibrateXEnd + ' ' + calibrateYEnd);
+            DisplayCalibration();
+        }
+
+        function ProcessImage(event) {
+            e = event || window.event;
+            if (!e.which && e.button !== undefined) {
+                e.which = (e.button & 1 ? 1 : (e.button & 2 ? 3 : (e.button & 4 ? 2 : 0)));
+            }
+            switch (e.which) {
+                case 1: break; //left
+                case 2: break; // middle
+                case 3: return true; break;  // right
+            }
+
+            var mousePos = GetMousePos(canvasImg, event);
+            var id2 = contextImg.getImageData(0, 0, canvasImg.width, canvasImg.height);
+            var dd2 = id2.data;
+            var mX = Math.round(mousePos.x) - 1;
+            var mY = Math.round(mousePos.y) - 1
+
+            if (calibrate) {
+                CalibrateAxis(mX, mY);
+                return;
+            }
+
+            var i = (mY * canvasImg.width + mX) * 4;
+            var r1 = dd2[i], g1 = dd2[i + 1], b1 = dd2[i + 2], a1 = dd2[i + 3];
+            document.getElementById("lbSelectedPointAttributes").innerHTML = 'Point color (RGBA): ' + r1 + ' ' + g1 + ' ' + b1 + ' ' + a1;
+            //alert(r1 + ' ' + g1 + ' ' + b1 + ' ' + a1 + ' w:' + canvasImg.width + ' h:' + canvasImg.height + ' mx:' + mousePos.x + ' my:' + mousePos.y);
+
+            SetGrid();
+
+            var yDistance = 30;
+            var tolerance = 20;
+            var grey = false;
+            if (r1 == g1 && r1 == b1) {
+                tolerance = Math.round(tolerance * 4);
+                yDistance = Math.round(yDistance / 10);
+                grey = true;
+            }
+
+            var xK = w / (calibrateXEnd - calibrateXStart);
+            var yK = h / (calibrateYEnd - calibrateYStart);
+
+            d[0] = 0;
+            d[1] = 0;
+            d[2] = 255;
+            d[3] = 255;
+            var lX = -1;
+            var lY = -1;
+
+            var j = 0;
+            for (x = calibrateXStart; x < calibrateXEnd; x++) {
+                for (y = calibrateYStart; y < calibrateYEnd; y++) {
+                    var i = (y * canvasImg.width + x) * 4;
+                    var r = dd2[i], g = dd2[i + 1], b = dd2[i + 2], a = dd2[i + 3];
+                    //alert(r+' '+g+' '+b);
+                    if ((!grey || (grey && r == g && r == b)) && (r1 + tolerance) >= r && (r1 - tolerance) <= r && (r1 + tolerance) >= r && (r1 - tolerance) <= r && (g1 + tolerance) >= g && (g1 - tolerance) <= g && (b1 + tolerance) >= b && (b1 - tolerance) <= b && (a1 + tolerance*2) >= a && (a1 - tolerance*2) <= a) {
+                        //var coord = { x: x, y: y };
+                        //alert(coord.x + ' '+ coord.y);
+                        var xGraph = Math.round(x * xK - calibrateXStart * xK);
+                        var yGraph = Math.round(y * yK - calibrateYStart * yK);
+                        if (lX < 0 || Math.abs(xGraph - lX) > 100 || Math.abs(yGraph - lY) > yDistance) {
+                            lX = xGraph;
+                            lY = yGraph;
+                        }
+                        //ctx.putImageData(id, xGraph, yGraph);
+                        ctx.fillStyle = "#0000FF";
+                        drawLineNoAliasing(ctx, lX, lY, xGraph, yGraph)
+                        lX = xGraph;
+                        lY = yGraph;
+                    }
+                }
+            }
+        }
+    
+        function Point(x, y) {
+            //var c = document.getElementById("myCanvas");
+            //var ctx = c.getContext("2d");
+            //ctx.FillRect(mousePos.x, mousePos.x, 2, 2);
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + 1, y + 1);
+            ctx.stroke();
+        }
+
+        function SetErase() {
+            erase = !erase;
+            if (erase) {
+                document.getElementById("btErase").innerHTML = "Erase Mode";
+                c.style.cursor = "url('erase.cur'), auto";
+            }
+            else {
+                document.getElementById("btErase").innerHTML = "Draw Mode";
+                c.style.cursor = "crosshair";
+            }
+        }
+
+        function OnMouseDown(event) {
+            e = event || window.event;
+            if (!e.which && e.button !== undefined) {
+                e.which = (e.button & 1 ? 1 : (e.button & 2 ? 3 : (e.button & 4 ? 2 : 0)));
+            }
+            switch (e.which) {
+                case 1: break; //left
+                case 2: break; // middle
+                case 3: return; break;  // right
+            }
+            mouseDown = true;
+            var mousePos = GetMousePos(c, event);
+            lastX = mousePos.x;
+            lastY = mousePos.y;
+            if (erase) {
+                EraseRect(mousePos.x, mousePos.y);
+                return;
+            }
+            Point(mousePos.x, mousePos.y);
+        }
+        function OnMouseUp(event) {
+            mouseDown = false;
+            //alert('mouseup');
+        }
+        function OnMouseOut(event) {
+            mouseDown = false;
+            //alert('mouseup');
+        }
+        function OnMouseMove(event) {
+            var mousePos = GetMousePos(c, event);
+            var message = 'Mouse position: ' + mousePos.x + ',' + mousePos.y;
+            document.getElementById('mouseCoordinatesLabel').innerHTML = message;
+            var realX = xStart + mousePos.x * (xEnd - xStart) / 1200;
+            var realY = yEnd - (mousePos.y * (yEnd - yStart) / 700);
+            document.getElementById('realCoordinatesLabelX').innerHTML = 'X: ' + parseFloat(realX).toFixed(decimalDigits);
+            document.getElementById('realCoordinatesLabelY').innerHTML = 'Y: ' + parseFloat(realY).toFixed(decimalDigits);
+
+            if (mouseDown) {
+                if (erase) {
+                    EraseRect(mousePos.x, mousePos.y);
+                    return;
+                }
+
+                ctx.beginPath();
+                /*
+                ctx.moveTo(lastX, lastY);
+                ctx.lineTo(mousePos.x, mousePos.y);
+                ctx.stroke();
+                ctx.moveTo(lastX + 0.5, lastY + 0.5);
+                ctx.lineTo(mousePos.x + 0.5, mousePos.y + 0.5);
+                ctx.stroke();
+                ctx.moveTo(lastX - 0.5, lastY - 0.5);
+                ctx.lineTo(mousePos.x - 0.5, mousePos.y - 0.5);
+                ctx.stroke();
+                */
+                ctx.fillStyle = "#0000FF";
+                drawLineNoAliasing(ctx, lastX, lastY, mousePos.x, mousePos.y)
+                lastX = mousePos.x;
+                lastY = mousePos.y;
+            }
+        }
+
+        function EraseRect(mouseX, mouseY) {
+            var id4 = ctx.getImageData(0, 0, w, h);
+            var dd4 = id4.data;
+            var eraseSize = 32;
+            var xStartErase = Math.round(mouseX);
+            var yStartErase = Math.round(mouseY);
+            var xEndErase = Math.round(mouseX + eraseSize);
+            var yEndErase = Math.round(mouseY + eraseSize);
+            if (xStartErase < 0)
+                xStartErase = 0;
+            if (yStartErase < 0)
+                yStartErase = 0;
+            if (xEndErase >= w)
+                xEndErase = w - 1;
+            if (yEndErase >= h)
+                yEndErase = h - 1;
+            d[0] = 255;
+            d[1] = 255;
+            d[2] = 255;
+            d[3] = 255;
+
+            for (x = xStartErase; x <= xEndErase; x++)
+                for (y = yStartErase; y <= yEndErase; y++) {
+                    var i = Math.round((y * w + x) * 4);
+                    //alert('down - erase')
+                    var r = dd4[i], g = dd4[i + 1], b = dd4[i + 2], a = dd4[i + 3];
+                    if (r == 0 && g == 0 && b == 255) {
+                        ctx.fillStyle = "#FFFFFF";
+                        ///alert(x + ' ' + y + ' ' + r + ' ' + g + ' ' + b);
+                        ctx.putImageData(id, x, y);
+                        //alert(x + ' '+ y);
+                    }
+                }
+        }
+
+        function GetMousePos(canvas, evt) {
+            var rect = canvas.getBoundingClientRect();
+            return {
+                x: evt.clientX - rect.left,
+                y: evt.clientY - rect.top
+            };
+        }
+
+        function SetSampling() {
+            sampling = Number(document.getElementById('sampling').value);
+        }
+
+        function SetDecimalDigits() {
+            decimalDigits = Number(document.getElementById('decimalDigits').value);
+        }
+
+        function Reset() {
+            SetGrid();
+            document.getElementById("textArea").value = "";
+        }
+
+        function GetLoadData() {
+            GetData()
+            LoadData();
+        }
+        function ChangePicParameters() {
+            var id1 = ctx.getImageData(0, 0, w, h);
+            var dd = id1.data;
+            var bckp = [];
+            var j = 0;
+            for (x = 0; x < w; x++) {
+                for (y = 0; y < h; y++) {
+                    var i = (y * w + x) * 4;
+                    var r = dd[i], g = dd[i + 1], b = dd[i + 2], a = dd[i + 3];
+                    //alert(r+' '+g+' '+b);
+                    if (r != 255 && g != 255 && b == 255) {
+                        var coord = { x: x, y: y };
+                        //alert(coord.x + ' '+ coord.y);
+                        bckp[j++] = coord;
+                    }
+                }
+            }
+
+            //alert(bckp.length);
+            SetGrid();
+            d[0] = 0;
+            d[1] = 0;
+            d[2] = 255;
+            d[3] = 255;
+            try {
+                for (j = 0; j < bckp.length; j++) {
+                    //alert(bckp[i].x + ' ' + bckp[i].y);
+                    ctx.putImageData(id, bckp[j].x, bckp[j].y);
+                }
+                //ctx.putImageData(id, 10, 10);
+            }
+            catch (err) {
+                document.getElementById('lbLastError').innerHTML = err;
+            }
+        }
+
+        // some helper functions
+        // finds the distance between points
+        function DBP(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+        }
+        // finds the angle of (x,y) on a plane from the origin
+        function getAngle(x, y) { return Math.atan(y / (x == 0 ? 0.01 : x)) + (x < 0 ? Math.PI : 0); }
+        // the function
+        function drawLineNoAliasing(ctx1, sx, sy, tx, ty) {
+            var dist = DBP(sx, sy, tx, ty); // length of line
+            var ang = getAngle(tx - sx, ty - sy); // angle of line
+            for (var i = 0; i < dist; i++) {
+                // for each point along the line
+                ctx1.fillRect(Math.round(sx + Math.cos(ang) * i), // round for perfect pixels
+                     Math.round(sy + Math.sin(ang) * i), // thus no aliasing
+                     1, 1); // fill in one pixel, 1x1
+            }
+        }
+
+        function SetGrid() {
+            document.getElementById('lbLastError').innerHTML = "";
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, 1200, 700);
+            ctx.fillStyle = "#000000";
+            //ctx.imageSmoothingEnabled = false;
+            //ctx.mozImageSmoothingEnabled = false;
+            //ctx.translate(0.5, 0.5);
+            SetSampling();
+            SetDecimalDigits()
+
+            xStart = Number(document.getElementById('xStart').value);
+            xEnd = Number(document.getElementById('xEnd').value);
+            xStepWidth = 1200 / (xEnd - xStart);
+            xGrid = Number(document.getElementById('xGrid').value);
+            xStep = xGrid * xStepWidth;
+            yStart = Number(document.getElementById('yStart').value);
+            yEnd = Number(document.getElementById('yEnd').value);
+            yStepWidth = 700 / (yEnd - yStart);
+            yGrid = Number(document.getElementById('yGrid').value);
+            yStep = yGrid * yStepWidth;
+
+            if (xStart > xEnd || yStart > yEnd) {
+                alert('Check start and end coordinates');
+                return;
+            }
+
+            ctx.strokeStyle = '#D8D8D8';
+            //ctx.strokeStyle = '#FF0000';
+            ctx.font = '10pt';
+            ctx.beginPath();
+
+            //alert('start:'+xStart + ' end:' + xEnd + ' stepwidth:' + xStepWidth + ' xstep:' + xStep);
+            if (xGrid > 0) {
+                var xShow = xStart;
+                for (var x = 0; x < 1200; x = x + xStep) {
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, 700);
+                    ctx.stroke();
+                    ctx.fillText(xShow, x + 3, 695);
+                    xShow = xShow + xGrid;
+                }
+            }
+            //alert('start:'+yStart + ' end:' + yEnd + ' stepwidth:' + yStepWidth + ' ystep:' + yStep);
+            if (yGrid > 0) {
+                var yShow = yStart;
+                for (var y = 700; y > 0; y = y - yStep) {
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(1200, y);
+                    ctx.stroke();
+                    if (y == 700) {
+                        ctx.fillText(yShow, 0, y - 15);
+                    }
+                    else {
+                        ctx.fillText(yShow, 3, y - 5);
+                    }
+                    yShow = yShow + yGrid;
+                }
+            }
+
+            ctx.strokeStyle = '#0000FF';
+            //ctx.translate(0.5, 0.5);
+            //ctx.lineWidth = .5;
+        }
+
+        function GetData() {
+            var text = document.getElementById("textArea");
+            var id = ctx.getImageData(0, 0, w, h);
+            var d = id.data;
+            var msg = "", xImgPrev = -1000;
+            if (sampling <= 0) {
+                for (var x = 0; x < c.width; x++) {
+                    var count = 0, all = 0;
+                    var realX = xStart + x / xStepWidth;
+                    for (var y = 0; y < c.height; y++) {
+                        var i = (y * w + x) * 4;
+                        var r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3];
+                        if (r != 255 && g != 255 && b == 255) {
+                            var realY = yEnd - y / yStepWidth;
+                            if (document.getElementById("average").checked) {
+                                count++;
+                                all += realY;
+                            }
+                            else {
+                                msg = msg + parseFloat(realX).toFixed(decimalDigits) + ';' + parseFloat(realY).toFixed(decimalDigits) + '\n';
+                            }
+                        }
+                        else {
+                            if (r != 255 && g != 255 && b == 255) {
+                            }
+                        }
+                        if (y == (c.height - 1) && document.getElementById("average").checked){
+                            if( count > 0) {
+                                var realY = all / count;
+                                msg = msg + parseFloat(realX).toFixed(decimalDigits) + ';' + parseFloat(realY).toFixed(decimalDigits) + '\n';
+                                yPrev = realY;
+                                xImgPrev = x;
+                            }
+                            else {
+                                if (document.getElementById("fillGaps").checked && yPrev >= 0 && xImgPrev >= x - 3) {
+                                    msg = msg + parseFloat(realX).toFixed(decimalDigits) + ';' + parseFloat(yPrev).toFixed(decimalDigits) + '\n';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else {
+                var yPrev = -1, xImgPrev = -1, yRealPrev = -1, slope = null, b = null, nextX = null, nextY = null, m = null, bK = null, xRealPrev = -1;
+                var samplingByLine = (xEnd - xStart) / w > sampling;
+                for (var x = xStart; x < xEnd; x += sampling) {
+                    var xImg = Math.round((x - xStart) * w / (xEnd - xStart));
+                    //alert('x=' + x + ' xStart=' + xStart + ' xEnd=' + xEnd + ' xImg=' + xImg + ' w=' + w);
+                    var count = 0, all = 0;
+                    for (y = 0; y < c.height; y++) {
+                        var i = (y * w + xImg) * 4;
+                        var r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3];
+                        if (r != 255 && g != 255 && b == 255) {
+                            var realX = x;
+                            var realY = yEnd - y / yStepWidth;
+                            yPrev = realY;
+                            if (document.getElementById("average").checked) {
+                                count++;
+                                all += realY;
+                            }
+                            else {
+                                msg = msg + parseFloat(realX).toFixed(decimalDigits) + ';' + parseFloat(realY).toFixed(decimalDigits) + '\n';
+                            }
+                        }
+                        if (y == (c.height - 1) && document.getElementById("average").checked) {
+                            if (count > 0) {
+                                var realY = all / count;
+                                if (xImg == xImgPrev && xImg < w - 1 && xRealPrev >= 0) {
+                                    if (m == null || bK == null) {
+                                        var xImgNext = xImg + 1;
+                                        var countNext = 0, allNext = 0;
+                                        for (var yNext = 0; yNext < c.height; yNext++) {
+                                            var j = (yNext * w + xImgNext) * 4;
+                                            var r = d[j], g = d[j + 1], b = d[j + 2], a = d[j + 3];
+                                            if (r != 255 && g != 255 && b == 255) {
+                                                var realYNext = yEnd - yNext / yStepWidth;
+                                                countNext++;
+                                                allNext += realYNext;
+                                            }
+                                        }
+                                        if (countNext > 0) {
+                                            nextX = xStart + xImgNext / xStepWidth;
+                                            realYNext = allNext / countNext;
+                                            m = (realYNext - yRealPrev) / (nextX - xRealPrev);
+                                            bK = yRealPrev - m * xRealPrev;
+                                        }
+                                    }
+                                    if (m != null && b != null) {
+                                        var imaginaryY = m * x + bK;
+                                        msg = msg + parseFloat(x).toFixed(decimalDigits) + ';' + parseFloat(imaginaryY).toFixed(decimalDigits) + '\n';
+                                        //alert(m + ' ' + bK + ' ' + xRealPrev + ' ' + yRealPrev + ' ' + nextX + ' ' + realYNext + ' ' + x + ' ' + imaginaryY);
+                                        continue;
+                                    }
+                                }
+                                msg = msg + parseFloat(x).toFixed(decimalDigits) + ';' + parseFloat(realY).toFixed(decimalDigits) + '\n';
+                                yPrev = realY;
+                                yRealPrev = realY;
+                                xImgPrev = xImg;
+                                xRealPrev = x;
+                                m = null;
+                                bK = null;
+                            }
+                            else {
+                                if (document.getElementById("fillGaps").checked && yPrev >= 0 && xImgPrev >= xImg - 3) {
+                                    msg = msg + parseFloat(x).toFixed(decimalDigits) + ';' + parseFloat(yPrev).toFixed(decimalDigits) + '\n';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            text.value = msg;
+        }
+
+        function LoadData() {
+            SetGrid();
+            d[0] = 0;
+            d[1] = 0;
+            d[2] = 255;
+            d[3] = 255;
+            var text = document.getElementById("textArea").value;
+            //alert(text);
+            //alert(text.value);
+            //alert(text.value.indexOf("0"));
+            var text = text.replace("\r\n", "\n");
+            var lines = text.split("\n");
+
+            for (var i = 0; i < lines.length; i++) {
+                if (lines[i] == "") {
+                    continue;
+                }
+                //alert(lines[i]);
+                var l = lines[i].split(';');
+                imgX = Math.round((Number(l[0]) - xStart) * w / (xEnd - xStart));
+                imgY = h - Math.round((Number(l[1]) - yStart) * h / (yEnd - yStart));
+                //alert(imgX + ' ' + imgY + ' ' + l[0] + ' ' + l[1] );
+                try {
+                    ctx.putImageData(id, imgX, imgY);
+                }
+                catch (err) {
+                    document.getElementById('lbLastError').innerHTML = err;
+                }
+            }
+        }
+
+        function DrawFunction() {
+            SetGrid();
+            var expr = document.getElementById('txFunction').value;
+            expr = expr.replace('X','x');
+            ctx.fillStyle = "#0000FF";
+            lastX = -1;
+            lastY = -1;
+
+            for (x = 0; x < w; x++) {
+                realX = xStart + x / xStepWidth;
+                var exprCalc = expr.replace('x', realX);
+                try {
+                    realY = math.eval(exprCalc);
+                    imgX = x;
+                    imgY = h - Math.round((realY - yStart) * h / (yEnd - yStart));
+                    if (lastX < 0)
+                    {
+                        lastX = imgX;
+                        lastY = imgY;
+                    }
+                    drawLineNoAliasing(ctx, lastX, lastY, imgX, imgY)
+                    if (imgY > h || imgY < 0) {
+                        lastX = -1;
+                        continue;
+                    }
+                    lastX = imgX;
+                    lastY = imgY;
+                }
+                catch (err) {
+                    document.getElementById('lbLastError').innerHTML = err;
+                }
+            }
+        }
+
+    </script>
+</body>
+</html>
