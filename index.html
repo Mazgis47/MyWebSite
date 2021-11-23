@@ -816,7 +816,7 @@
 
             for (x = 0; x < w; x++) {
                 realX = xStart + x / xStepWidth;
-                var exprCalc = expr.replace('x', realX);
+                var exprCalc = expr.replaceAll('x', realX);
                 try {
                     realY = math.eval(exprCalc);
                     imgX = x;
