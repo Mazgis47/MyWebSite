@@ -449,7 +449,7 @@
         }
         function OnMouseMove(event) {
             var mousePos = GetMousePos(c, event);
-            var message = 'Mouse position: ' + mousePos.x + ',' + mousePos.y;
+            var message = 'Mouse position: ' + mousePos.x + '    ' + mousePos.y;
             document.getElementById('mouseCoordinatesLabel').innerHTML = message;
             var realX = xStart + mousePos.x * (xEnd - xStart) / 1200;
             var realY = yEnd - (mousePos.y * (yEnd - yStart) / 700);
